@@ -116,6 +116,12 @@ namespace TheDotFactory
             outputConfig.descFontHeight = (OutputConfiguration.DescriptorFormat)Array.IndexOf(OutputConfiguration.DescriptorFormatDisplayString, cbxFontHeightFormat.Text);
             outputConfig.descImgWidth = (OutputConfiguration.DescriptorFormat)Array.IndexOf(OutputConfiguration.DescriptorFormatDisplayString, cbxImgWidthFormat.Text);
             outputConfig.descImgHeight = (OutputConfiguration.DescriptorFormat)Array.IndexOf(OutputConfiguration.DescriptorFormatDisplayString, cbxImgHeightFormat.Text);
+			
+			// load descCharStartPos
+			if (outputConfig.paddingRemovalHorizontal == OutputConfiguration.PaddingRemoval.Tighest)
+				outputConfig.descCharStartPos = OutputConfiguration.DescriptorFormat.DisplayInBits;
+			else
+				outputConfig.descCharStartPos = OutputConfiguration.DescriptorFormat.DontDisplay;
 
             // text boxes
             outputConfig.byteLeadingString = cbxByteLeadingChar.Text;

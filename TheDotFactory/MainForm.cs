@@ -36,7 +36,7 @@ namespace TheDotFactory
         private static String nl = Environment.NewLine;
 
         // application version
-        public const string ApplicationVersion = "0.1.4";
+        public const string ApplicationVersion = "0.2.0";
 
         // current loaded bitmap
         private Bitmap m_currentLoadedBitmap = null;
@@ -56,6 +56,7 @@ namespace TheDotFactory
             public CharacterGenerationInfo[]    characters;
             public Font                         font;
             public string                       generatedChars;
+			public int							charMaxWidth;
         }
 
         // to allow mapping string/value
@@ -112,6 +113,9 @@ namespace TheDotFactory
             
             // offset into total array
             public int offsetInBytes;
+			
+			// row offset if character trimmed on top
+			public int  charStartRow;
         }
 
         // holds a range of chars
@@ -128,6 +132,7 @@ namespace TheDotFactory
                 public int height;
                 public int width;
                 public int offset;
+				public int charStartRow;
             }
         }
         
@@ -601,8 +606,10 @@ namespace TheDotFactory
         private bool manipulateBitmap(Bitmap bitmapOriginal, 
                                       BitmapBorder tightestCommonBorder,
                                       out Bitmap bitmapManipulated,
-                                      int minWidth, int minHeight)
+                                      int minWidth, int minHeight, out int charStartRow)
         {
+			
+			charStartRow = 0;
             //
             // First, crop
             //
@@ -626,12 +633,14 @@ namespace TheDotFactory
                 bitmapCropBorder.rightX = minWidth - 1;
             }
 
+            charStartRow = bitmapCropBorder.topY - tightestCommonBorder.topY;// - bitmapCropBorder.topY;
+			
             // check that height exceeds minimum
             if (bitmapCropBorder.bottomY - bitmapCropBorder.topY + 1 < 0)
             {
-                // replace
+				// replace
                 bitmapCropBorder.topY = 0;
-                bitmapCropBorder.bottomY = minHeight - 1;
+                bitmapCropBorder.bottomY = minHeight - 1;				
             }
 
             // should we crop hotizontally according to common
@@ -780,6 +789,8 @@ namespace TheDotFactory
             // the fixed absolute character height
             // int fixedAbsoluteCharHeight;
             getAbsoluteCharacterDimensions(ref fontInfo.characters[0].bitmapToGenerate, ref dummy, ref fontInfo.charHeight);
+			
+			fontInfo.charMaxWidth = 0;
                 
             // iterate through letter string
             for (int charIdx = 0; charIdx < fontInfo.characters.Length; ++charIdx)
@@ -806,6 +817,9 @@ namespace TheDotFactory
 
                 // increment byte offset
                 charByteOffset += fontInfo.characters[charIdx].pages.Count;
+				
+				// get max character width
+				if (fontInfo.charMaxWidth < fontInfo.characters[charIdx].width) fontInfo.charMaxWidth = fontInfo.characters[charIdx].width;
             }
         }
 
@@ -867,6 +881,7 @@ namespace TheDotFactory
             // Find the widest bitmap size we are going to draw
             //
             Rectangle largestBitmap = getLargestBitmapFromCharInfo(fontInfo.characters);
+			
             
             //
             // create bitmaps per characater
@@ -891,14 +906,20 @@ namespace TheDotFactory
 
             // this will contain the values of the tightest border around the characters
             BitmapBorder tightestCommonBorder = new BitmapBorder();
+			BitmapBorder tightestCommonBorderNew = new BitmapBorder();
 
             // only perform if padding type specifies
-            if (m_outputConfig.paddingRemovalHorizontal == OutputConfiguration.PaddingRemoval.Fixed ||
-                m_outputConfig.paddingRemovalVertical == OutputConfiguration.PaddingRemoval.Fixed)
-            {
+            // if (m_outputConfig.paddingRemovalHorizontal == OutputConfiguration.PaddingRemoval.Fixed ||
+                // m_outputConfig.paddingRemovalVertical == OutputConfiguration.PaddingRemoval.Fixed)
+            // {
                 // find the common tightest border
                 findTightestCommonBitmapBorder(fontInfo.characters, ref tightestCommonBorder);
-            }
+            //}
+			if (m_outputConfig.paddingRemovalHorizontal == OutputConfiguration.PaddingRemoval.Tighest)
+			{
+				// find the common tightest border
+				findTightestCommonBitmapBorder(fontInfo.characters, ref tightestCommonBorderNew);
+			}
 
             //
             // iterate thruogh all bitmaps and generate the bitmap we will convert to string
@@ -913,12 +934,13 @@ namespace TheDotFactory
                                  tightestCommonBorder,
                                  out fontInfo.characters[charIdx].bitmapToGenerate,
                                  m_outputConfig.spaceGenerationPixels,
-                                 fontInfo.characters[charIdx].bitmapOriginal.Height);
-
+                                 fontInfo.characters[charIdx].bitmapOriginal.Height,
+								 out fontInfo.characters[charIdx].charStartRow);
+				
                 // for debugging
                 // fontInfo.characters[charIdx].bitmapToGenerate.Save(String.Format("C:/bms/{0}_cropped.bmp", fontInfo.characters[charIdx].character));
             }
-
+			
             //
             // iterate through all characters and create the page array
             //
@@ -936,6 +958,10 @@ namespace TheDotFactory
 
             // populate font info
             populateFontInfoFromCharacters(ref fontInfo);
+			if (m_outputConfig.paddingRemovalHorizontal == OutputConfiguration.PaddingRemoval.Tighest)
+				{
+					fontInfo.charHeight = tightestCommonBorderNew.bottomY - tightestCommonBorderNew.topY + 1;
+				}
 
             // return the font info
             return fontInfo;
@@ -1275,7 +1301,7 @@ namespace TheDotFactory
         private void charDescArrayAddCharacter(CharacterDescriptorArrayBlock desciptorBlock,
                                                FontInfo fontInfo, 
                                                char character,
-                                               int width, int height, int offset)
+                                               int width, int height, int offset, int charStartRow)
         {
             // create character descriptor
             CharacterDescriptorArrayBlock.Character charDescriptor = new CharacterDescriptorArrayBlock.Character();
@@ -1284,6 +1310,7 @@ namespace TheDotFactory
                 charDescriptor.height = height;
                 charDescriptor.width = width;
                 charDescriptor.offset = offset;
+				charDescriptor.charStartRow = charStartRow;
 
             // shove this character to the descriptor block
             desciptorBlock.characters.Add(charDescriptor);
@@ -1319,7 +1346,7 @@ namespace TheDotFactory
                             ++sequentialCharIndex)
                     {
                         // add the character placeholder to the current char block
-                        charDescArrayAddCharacter(characterBlock, fontInfo, sequentialCharIndex, 0, 0, 0);
+                        charDescArrayAddCharacter(characterBlock, fontInfo, sequentialCharIndex, 0, 0, 0, 0);
                     }
 
                     // fall through and add to current block
@@ -1339,7 +1366,8 @@ namespace TheDotFactory
                 charDescArrayAddCharacter(characterBlock, fontInfo, currentCharacter,
                                           fontInfo.characters[charIndex].width,
                                           fontInfo.characters[charIndex].height,
-                                          fontInfo.characters[charIndex].offsetInBytes);
+                                          fontInfo.characters[charIndex].offsetInBytes,
+										  fontInfo.characters[charIndex].charStartRow);
 
                 // save previous char
                 previousCharacter = currentCharacter;
@@ -1418,10 +1446,11 @@ namespace TheDotFactory
                                                         m_commentEndString);
 
                     // describe character array
-                    resultTextSource += String.Format("{0}{{ {1}{2}[Offset into {3}CharBitmaps in bytes] }}{4}" + nl,
+                    resultTextSource += String.Format("{0}{{ {1}{2}{3}[Offset into {4}CharBitmaps in bytes] }}{5}" + nl,
                                                         m_commentStartString,
                                                         getCharacterDescName("width", m_outputConfig.descCharWidth),
                                                         getCharacterDescName("height", m_outputConfig.descCharHeight),
+														getCharacterDescName("start row", m_outputConfig.descCharStartPos),
                                                         getFontName(ref fontInfo.font),
                                                         m_commentEndString);
                 }
@@ -1433,9 +1462,10 @@ namespace TheDotFactory
                 foreach (CharacterDescriptorArrayBlock.Character character in block.characters)
                 {
                     // add character
-                    resultTextSource += String.Format("\t{{{0}{1}{2}}}, \t\t{3}{4}{5}" + nl,
+                    resultTextSource += String.Format("\t{{{0}{1}{2}{3}}}, \t\t{4}{5}{6}" + nl,
                                                     getCharacterDescString(m_outputConfig.descCharWidth, character.width),
                                                     getCharacterDescString(m_outputConfig.descCharHeight, character.height),
+													getCharacterDescString(m_outputConfig.descCharStartPos, character.charStartRow),
                                                     character.offset,
                                                     m_commentStartString,
                                                     character.character,
@@ -1605,7 +1635,7 @@ namespace TheDotFactory
             resultTextHeader += String.Format("extern {0};" + nl, fontInfoVarName);
 
             // the font character height
-            string fontCharHeightString = "", spaceCharacterPixelWidthString = "";
+            string fontCharHeightString = "", spaceCharacterPixelWidthString = "", fontCharMaxWidthString = "";
             
             // get character height sstring - displayed according to output configuration
             if (m_outputConfig.descFontHeight != OutputConfiguration.DescriptorFormat.DontDisplay)
@@ -1626,6 +1656,12 @@ namespace TheDotFactory
                                                                 m_commentStartString,
                                                                 m_commentEndString);
             }
+			
+			// get max char width
+			fontCharMaxWidthString = String.Format("\t{0}, {1} Max width, in pixels, of widest character{2}" + nl,
+                                                                fontInfo.charMaxWidth,
+                                                                m_commentStartString,
+                                                                m_commentEndString);
 
             // font info
             resultTextSource += String.Format("{2} =" + nl+"{{" + nl +
@@ -1635,6 +1671,8 @@ namespace TheDotFactory
                                               "{6}" +
                                               "{7}" +
                                               "\t{8}, {0} Character bitmap array{1}" + nl +
+											  "{9}" +
+											  "\t{10}, {0} Character spacing{1}" + nl +
                                               "}};" + nl,
                                               m_commentStartString,
                                               m_commentEndString,
@@ -1644,7 +1682,9 @@ namespace TheDotFactory
                                               getCharacterDisplayString(fontInfo.endChar),
                                               spaceCharacterPixelWidthString,
                                               getFontInfoDescriptorsString(fontInfo, blockLookupGenerated),
-                                              getVariableNameFromExpression(String.Format(m_outputConfig.varNfBitmaps, getFontName(ref fontInfo.font))));
+                                              getVariableNameFromExpression(String.Format(m_outputConfig.varNfBitmaps, getFontName(ref fontInfo.font))),
+											  fontCharMaxWidthString,
+											  2);
 
             // add the appropriate entity to the header
             if (blockLookupGenerated)
@@ -1739,7 +1779,8 @@ namespace TheDotFactory
                 Bitmap bitmapManipulated;
 
                 // try to manipulate teh bitmap
-                if (!manipulateBitmap(bitmapOriginal, bitmapBorder, out bitmapManipulated, 0, 0))
+				int tmp=0;
+                if (!manipulateBitmap(bitmapOriginal, bitmapBorder, out bitmapManipulated, 0, 0, out tmp))
                 {
                     // show error
                     MessageBox.Show("No black pixels found in bitmap (currently only monochrome bitmaps supported)",
@@ -2030,7 +2071,7 @@ namespace TheDotFactory
                 // strings for comments
                 m_commentStartString = "// ";
                 m_commentBlockEndString = m_commentBlockMiddleString = m_commentStartString;
-                m_commentEndString = "";
+                m_commentEndString = " //";
             }
             else
             {
